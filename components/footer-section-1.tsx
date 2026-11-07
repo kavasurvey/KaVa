@@ -7,7 +7,7 @@ import { Mail, MapPin } from "lucide-react";
 
 export default function Footer1() {
   const shouldReduceMotion = useReducedMotion();
-  const contactEmail = process.env.NEXT_PUBLIC_CONTACT_EMAIL || "admin@dmaf-kassep.org";
+  const contactEmail = process.env.NEXT_PUBLIC_CONTACT_EMAIL || "kavasurveykano@gmail.com";
 
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
