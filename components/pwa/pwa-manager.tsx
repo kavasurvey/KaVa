@@ -245,7 +245,7 @@ export function PwaManager() {
 
       {/* D. Install App Prompt Banner */}
       {showInstallPrompt && (
-        <div className="mx-auto mt-2 max-w-md w-full px-4 pointer-events-auto">
+        <div className="mx-auto mt-12 max-w-md w-full px-4 pointer-events-auto">
           <div className="p-3.5 rounded-xl bg-card border border-border shadow-lg text-xs text-foreground flex items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="size-7 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0">
