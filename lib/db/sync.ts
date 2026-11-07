@@ -110,6 +110,8 @@ export class SurveySyncService {
       visit_number: Number(householdData.visit_number || 1),
       visit_result: Number(householdData.visit_result || 1),
       status: 'submitted',
+      sync_status: 'pending',
+      retry_count: 0,
       data: householdData,
       created_at: now,
       updated_at: now,
@@ -452,9 +454,18 @@ export class SurveySyncService {
 
         if (submitErr) {
           console.warn('Supabase submit status update error:', submitErr);
+          hhRecord.sync_status = 'failed';
+          hhRecord.sync_error = submitErr.message;
+        } else {
+          hhRecord.sync_status = 'synced';
+          hhRecord.sync_error = undefined;
         }
-      } catch (err) {
+        await kavaDb.households.put(hhRecord);
+      } catch (err: any) {
         console.warn('Background Supabase sync failed, retained in local IndexedDB:', err);
+        hhRecord.sync_status = 'pending';
+        hhRecord.sync_error = err.message || 'Network offline';
+        await kavaDb.households.put(hhRecord);
       }
     }
 
@@ -463,6 +474,222 @@ export class SurveySyncService {
       referralIds: allReferralIds,
       flagsCount: collectedFlags.length
     };
+  }
+
+  // --- Queued Offline Sync Engine ---
+  public async getPendingSyncCount(): Promise<number> {
+    await this.init();
+    try {
+      return await kavaDb.households.where('sync_status').anyOf('pending', 'failed').count();
+    } catch {
+      return 0;
+    }
+  }
+
+  public async hasUnsyncedData(): Promise<{ hasUnsynced: boolean; pendingCount: number; draftCount: number }> {
+    await this.init();
+    try {
+      const pendingCount = await kavaDb.households.where('sync_status').anyOf('pending', 'failed').count();
+      const draftCount = await kavaDb.active_drafts.count();
+      return {
+        hasUnsynced: pendingCount > 0 || draftCount > 0,
+        pendingCount,
+        draftCount
+      };
+    } catch {
+      return { hasUnsynced: false, pendingCount: 0, draftCount: 0 };
+    }
+  }
+
+  public async clearLocalDataSafe(): Promise<void> {
+    await this.init();
+    await kavaDb.active_drafts.clear();
+    await kavaDb.profiles.clear();
+  }
+
+  public async syncQueuedInterviews(): Promise<{ syncedCount: number; failedCount: number; errors: string[] }> {
+    await this.init();
+    if (!isSupabaseConfigured || !supabase) {
+      return { syncedCount: 0, failedCount: 0, errors: ['Supabase not configured'] };
+    }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return { syncedCount: 0, failedCount: 0, errors: ['Device currently offline'] };
+    }
+
+    let pendingHhs: HouseholdRecord[] = [];
+    try {
+      pendingHhs = await kavaDb.households
+        .where('sync_status')
+        .anyOf('pending', 'failed')
+        .toArray();
+    } catch {
+      // Fallback query
+      const all = await kavaDb.households.toArray();
+      pendingHhs = all.filter(h => h.sync_status === 'pending' || h.sync_status === 'failed');
+    }
+
+    if (pendingHhs.length === 0) {
+      return { syncedCount: 0, failedCount: 0, errors: [] };
+    }
+
+    let syncedCount = 0;
+    let failedCount = 0;
+    const errors: string[] = [];
+
+    for (const hh of pendingHhs) {
+      try {
+        const now = new Date().toISOString();
+        const assessment_hh_id = hh.assessment_hh_id;
+        const ea_id = hh.ea_id;
+        const interviewer_id = hh.interviewer_id;
+
+        // Resolve target EA UUID
+        let targetEaId = ea_id;
+        try {
+          const { data: matchedEa } = await supabase
+            .from('enumeration_areas')
+            .select('id')
+            .or(`id.eq.${ea_id},code.eq.${hh.ea_code || ea_id}`)
+            .limit(1)
+            .maybeSingle();
+          if (matchedEa?.id) targetEaId = matchedEa.id;
+        } catch {}
+
+        // Fetch local children records
+        const [women, deaths, pregnancies, babies, visits, flags] = await Promise.all([
+          kavaDb.women.where('assessment_hh_id').equals(assessment_hh_id).toArray(),
+          kavaDb.deaths.where('assessment_hh_id').equals(assessment_hh_id).toArray(),
+          kavaDb.pregnancies.where('assessment_hh_id').equals(assessment_hh_id).toArray(),
+          kavaDb.babies.where('assessment_hh_id').equals(assessment_hh_id).toArray(),
+          kavaDb.household_visits.where('assessment_hh_id').equals(assessment_hh_id).toArray(),
+          kavaDb.review_flags.where('assessment_hh_id').equals(assessment_hh_id).toArray()
+        ]);
+
+        // Step 1: Insert parent household as 'draft' first
+        const draftHouseholdPayload = {
+          assessment_hh_id: hh.assessment_hh_id,
+          ea_id: targetEaId,
+          interviewer_id,
+          supervisor_id: hh.supervisor_id || null,
+          visit_number: hh.visit_number,
+          visit_result: hh.visit_result,
+          status: 'draft',
+          data: hh.data,
+          created_at: hh.created_at,
+          updated_at: now
+        };
+
+        const { data: insertedHh, error: hhInsertError } = await supabase
+          .from('households')
+          .upsert(draftHouseholdPayload, { onConflict: 'assessment_hh_id' })
+          .select('id')
+          .single();
+
+        if (hhInsertError) throw hhInsertError;
+
+        const supabaseHhId = insertedHh?.id || hh.id;
+
+        // Step 2: Insert children while household is 'draft'
+        const womenPayload = women.map(w => ({
+          ...w,
+          household_id: supabaseHhId,
+          ea_id: targetEaId,
+          interviewer_id
+        }));
+
+        const deathsPayload = deaths.map(d => ({
+          ...d,
+          household_id: supabaseHhId,
+          ea_id: targetEaId,
+          interviewer_id
+        }));
+
+        const pregnanciesPayload = pregnancies.map(p => ({
+          ...p,
+          household_id: supabaseHhId,
+          ea_id: targetEaId,
+          interviewer_id
+        }));
+
+        const babiesPayload = babies.map(b => ({
+          ...b,
+          ea_id: targetEaId,
+          interviewer_id
+        }));
+
+        const visitsPayload = visits.map(v => ({
+          household_id: supabaseHhId,
+          assessment_hh_id,
+          ea_id: targetEaId,
+          visit_number: v.visit_number,
+          visit_result: v.visit_result,
+          visited_at: v.visited_at,
+          interviewer_id,
+          notes: v.notes
+        }));
+
+        const flagsPayload = flags.map(f => ({
+          type: f.type,
+          level: f.level,
+          record_ref: f.record_ref,
+          assessment_hh_id: f.assessment_hh_id,
+          ea_id: targetEaId,
+          interviewer_id,
+          status: 'pending',
+          severity: f.severity,
+          message: f.message,
+          notes: f.notes || null,
+          created_at: f.created_at
+        }));
+
+        if (womenPayload.length > 0) {
+          await supabase.from('women').upsert(womenPayload, { onConflict: 'assessment_hh_id,woman_line' });
+        }
+        if (deathsPayload.length > 0) {
+          await supabase.from('deaths').upsert(deathsPayload, { onConflict: 'assessment_hh_id,death_line' });
+        }
+        if (pregnanciesPayload.length > 0) {
+          await supabase.from('pregnancies').upsert(pregnanciesPayload, { onConflict: 'pregnancy_id' });
+        }
+        if (babiesPayload.length > 0) {
+          await supabase.from('babies').upsert(babiesPayload, { onConflict: 'pregnancy_id,baby_id' });
+        }
+        if (visitsPayload.length > 0) {
+          await supabase.from('household_visits').upsert(visitsPayload, { onConflict: 'assessment_hh_id,visit_number' });
+        }
+        if (flagsPayload.length > 0) {
+          await supabase.from('review_flags').insert(flagsPayload);
+        }
+
+        // Step 3: Mark household as 'submitted' with submitted_at
+        const { error: submitErr } = await supabase
+          .from('households')
+          .update({
+            status: 'submitted',
+            submitted_at: hh.submitted_at || now,
+            updated_at: now,
+            data: hh.data
+          })
+          .eq('id', supabaseHhId);
+
+        if (submitErr) throw submitErr;
+
+        // Step 4: Server confirmed! Update local record to synced
+        hh.sync_status = 'synced';
+        hh.sync_error = undefined;
+        await kavaDb.households.put(hh);
+        syncedCount++;
+      } catch (err: any) {
+        failedCount++;
+        errors.push(`${hh.assessment_hh_id}: ${err.message || 'Sync failed'}`);
+        hh.sync_status = 'failed';
+        hh.sync_error = err.message || 'Sync failed';
+        hh.retry_count = (hh.retry_count || 0) + 1;
+        await kavaDb.households.put(hh);
+      }
+    }
+
+    return { syncedCount, failedCount, errors };
   }
 
   // --- Fetch Methods ---

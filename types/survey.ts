@@ -95,6 +95,9 @@ export interface HouseholdRecord {
   visit_number: number;
   visit_result: number;
   status: 'draft' | 'submitted' | 'reviewed';
+  sync_status?: 'synced' | 'pending' | 'failed';
+  sync_error?: string;
+  retry_count?: number;
   data: Record<string, any>;
   created_at: string;
   updated_at: string;

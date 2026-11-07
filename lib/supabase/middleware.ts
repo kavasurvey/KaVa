@@ -21,6 +21,9 @@ export async function updateSession(request: NextRequest) {
     pathname === '/login' ||
     pathname === '/forgot-password' ||
     pathname === '/reset-password' ||
+    pathname === '/offline' ||
+    pathname === '/manifest.webmanifest' ||
+    pathname === '/manifest.json' ||
     pathname.startsWith('/api/') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/static') ||

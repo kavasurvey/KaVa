@@ -73,6 +73,10 @@ export class KaVaDatabase extends Dexie {
     this.version(3).stores({
       household_visits: 'id, assessment_hh_id, ea_id, interviewer_id, visited_at'
     });
+    // version 4: indexes sync_status for offline queuing and background sync
+    this.version(4).stores({
+      households: 'id, assessment_hh_id, ea_id, interviewer_id, status, sync_status, created_at'
+    });
   }
 }
 
