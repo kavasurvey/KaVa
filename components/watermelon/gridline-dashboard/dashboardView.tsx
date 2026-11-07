@@ -53,16 +53,34 @@ function DashboardContentRouter() {
           language={language}
         />
       ) : pathname === "/responses" ? (
-        <ResponsesTableView
-          role={role}
-          language={language}
-        />
+        role === "interviewer" ? (
+          <div className="flex flex-col items-center justify-center p-12 text-center max-w-md mx-auto my-12 bg-card border border-border rounded-xl shadow-xs">
+            <h2 className="text-base font-semibold text-foreground mb-1">Access Restricted</h2>
+            <p className="text-xs text-muted-foreground font-mono">
+              Survey response and export features are reserved for Study Administrators and Supervisors.
+            </p>
+          </div>
+        ) : (
+          <ResponsesTableView
+            role={role}
+            language={language}
+          />
+        )
       ) : pathname === "/staff" ? (
-        <AdminUsersView
-          currentRole={role}
-          onSwitchRole={setRole}
-          language={language}
-        />
+        role === "interviewer" ? (
+          <div className="flex flex-col items-center justify-center p-12 text-center max-w-md mx-auto my-12 bg-card border border-border rounded-xl shadow-xs">
+            <h2 className="text-base font-semibold text-foreground mb-1">Access Restricted</h2>
+            <p className="text-xs text-muted-foreground font-mono">
+              User & EA management is reserved for Study Administrators and Supervisors.
+            </p>
+          </div>
+        ) : (
+          <AdminUsersView
+            currentRole={role}
+            onSwitchRole={setRole}
+            language={language}
+          />
+        )
       ) : pathname === "/guide" ? (
         <FieldGuideView language={language} />
       ) : (

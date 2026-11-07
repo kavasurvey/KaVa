@@ -37,10 +37,10 @@ export default function RootLayout({
               try {
                 const params = new URLSearchParams(window.location.search);
                 const urlTheme = params.get('theme');
-                const storedTheme = localStorage.getItem('theme');
+                const storedTheme = localStorage.getItem('theme') || localStorage.getItem('kava-theme');
                 if (urlTheme === 'dark' || (!urlTheme && storedTheme === 'dark')) {
                   document.documentElement.classList.add('dark');
-                } else if (urlTheme === 'light') {
+                } else if (urlTheme === 'light' || (!urlTheme && storedTheme === 'light')) {
                   document.documentElement.classList.remove('dark');
                 }
               } catch (_) {}

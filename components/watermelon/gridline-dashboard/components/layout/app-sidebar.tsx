@@ -34,6 +34,7 @@ import { cn } from "@/lib/utils";
 import { SidebarToggleIcon } from "../../assets/icons";
 import { Logo } from "../../assets/logo";
 import { ProfileMenu } from "../shared/profile-menu";
+import { useAuth } from "@/lib/auth/auth-context";
 import {
   SidebarNavigationItem,
   type NavigationItem,
@@ -79,6 +80,15 @@ type ThemeProps = {
 };
 
 export function AppSidebar() {
+  const { role } = useAuth();
+  // Role-based navigation: interviewers do not see Users (/staff) or Exports (/responses)
+  const navItems = primaryNavigation.filter((item) => {
+    if (role === 'interviewer') {
+      return item.href !== '/staff' && item.href !== '/responses';
+    }
+    return true;
+  });
+
   return (
     <aside
       aria-label="Primary navigation"
@@ -90,7 +100,7 @@ export function AppSidebar() {
         </div>
 
         <nav className="flex flex-col items-center gap-4 border-b border-sidebar-border pb-3">
-          {primaryNavigation.map((item) => (
+          {navItems.map((item) => (
             <SidebarNavigationItem key={item.href} item={item} />
           ))}
         </nav>
@@ -105,6 +115,13 @@ export function AppSidebar() {
 
 export function MobileNavigation({ isDark, onThemeChange }: ThemeProps) {
   const [open, setOpen] = useState(false);
+  const { role } = useAuth();
+  const navItems = primaryNavigation.filter((item) => {
+    if (role === 'interviewer') {
+      return item.href !== '/staff' && item.href !== '/responses';
+    }
+    return true;
+  });
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -142,7 +159,7 @@ export function MobileNavigation({ isDark, onThemeChange }: ThemeProps) {
         </SheetHeader>
 
         <nav className="flex flex-col gap-1 p-3">
-          {primaryNavigation.map((item) => (
+          {navItems.map((item) => (
             <SidebarNavigationItem
               key={item.href}
               item={item}

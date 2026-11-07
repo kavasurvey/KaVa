@@ -156,6 +156,24 @@ To add or modify a question:
 
 ---
 
+## 🔒 Supabase Authentication & Security Configuration
+
+To maintain strict data integrity and prevent unauthorized registration:
+
+1. **Disable Public Sign-Up:**
+   - In the Supabase Dashboard, navigate to **Authentication** -> **Providers** -> **Email**.
+   - Ensure that **"Allow new users to sign up"** is explicitly set to **OFF**.
+   - This guarantees that no accounts can be registered through the public API or unauthorized clients. All interviewer and supervisor accounts must be provisioned directly by a Study Administrator via the Users & EA Assignments interface or the `/api/users` endpoint.
+
+2. **Abuse Protection & Rate Limiting:**
+   - The KaVa frontend enforces client-side rate limiting (5 consecutive failed attempts trigger an automatic 60-second lockout).
+   - **Enabling CAPTCHA:** For production cloud deployments, enable Cloudflare Turnstile or hCaptcha in **Authentication** -> **Bot Protection** within the Supabase Dashboard to mitigate automated brute-force attempts on the `/auth/v1/token` endpoints.
+
+3. **Mandatory First-Login Password Change:**
+   - Users provisioned by an administrator are issued temporary passwords. Upon their first login, KaVa detects the temporary credentials and requires the operator to establish a secure permanent password before accessing field surveillance modules.
+
+---
+
 ## 🔒 Privacy & De-Identification Protocol
 
 In compliance with national ethical clearance and DMAF data protection requirements:
